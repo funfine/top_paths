@@ -15,17 +15,44 @@ object App {
     val spark = SparkSessionSingleton.getInstance(sc.getConf)
     import spark.implicits._
 
-    val input = sc.textFile("s3n://weebly-trial-week/top_paths/0001_part_00")
-    val filterData = input.map { x => x.split('|') }
-    filterData.count()
-    val userGroupData = filterData.map { line => (line(0), new TimeEvent(line(2), line(3), line(4), line(5), line(6), line(15))) }.groupByKey()
+    val input = sc.textFile("INPUT_FILE")
+    val filterData = input
+      .map { x => x.split('|') }
+    val userGroupData = filterData
+      .map { line =>
+        (line(0), new TimeEvent(line(2), line(3), line(4), line(5), line(6), line(15)))
+      }
+      .groupByKey()
     userGroupData.count()
-    val userSignup = userGroupData.map { x => sortTime(x._2) }.filter(x => x != null)
+    val userSignup = userGroupData
+      .map { x => sortTime(x._2) }
+      .filter(x => x != null)
     userSignup.count()
-    val userCombinations = userSignup.flatMap { x => if (x.length < 5) x.combinations(x.length); else x.combinations(4) }
-    val pathCount = sc.parallelize(userCombinations.map { x => (flatten(x), 1) }.reduceByKey(_ + _).sortBy(_._2, false).take(1000))
-    pathCount.map { x => PathCount(x._1, x._2) }.toDF.sort(desc("count")).show(100, false)
-    pathCount.coalesce(1, true).saveAsTextFile("s3n://weebly-trial-week/top_paths/path_count2.csv")
+    val userCombinations = userSignup
+      .flatMap { x =>
+        if (x.length < 5) x.combinations(x.length);
+        else x.combinations(4)
+      }
+
+    var timeEvent1 = new TimeEvent("2017-10-03 02:13:30", "struct", "user", "signup_ok", "", "")
+    var timeEvent2 = new TimeEvent("2017-10-24 22:09:27", "page_view", "", "", "", "www.weebly.com")
+    var timeEvent3 = new TimeEvent("2017-10-15 11:07:44.98", "struct", "homepage", "view_ecommerce", "", "")
+    var timeEvent4 = new TimeEvent("2017-10-15 11:07:58.999", "struct", "user", "login_ok", "", "")
+    var test1 : Iterable[TimeEvent] = List(timeEvent1,timeEvent2,timeEvent3,timeEvent4)
+    println(sortTime(test1))
+
+    val pathCount = sc.parallelize(userCombinations
+      .map { x =>
+        (flatten(x), 1)
+      }
+      .reduceByKey(_ + _)
+      .sortBy(_._2, false)
+      .take(1000))
+    pathCount.map { x => PathCount(x._1, x._2) }
+      .toDF.sort(desc("count"))
+      .show(100, false)
+    pathCount.coalesce(1, true)
+      .saveAsTextFile("OUTPUT_FILE")
   }
 
   case class PathCount(Path:String, Count: Long)
@@ -77,7 +104,13 @@ object App {
         -1
     }
 
-    override def toString = timestamp + " " + category + " " + action + " " + label
+    override def toString: String = {
+      if(event contains("view")) {
+        return timestamp + " " + event + " " + url
+      } else {
+        return timestamp + " " + category + " " + action + " " + label
+      }
+    }
   }
 
   def sortTime(input: Iterable[TimeEvent]) : Seq[String] = {
